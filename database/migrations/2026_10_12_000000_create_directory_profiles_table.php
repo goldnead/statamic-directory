@@ -12,8 +12,8 @@ return new class extends Migration
             $table->id();
             $table->string('entry_id');
             $table->string('site');
-            $table->string('legacy_id')->nullable()->unique();
-            $table->unsignedBigInteger('team_id')->nullable()->unique();
+            $table->string('legacy_id')->nullable();
+            $table->unsignedBigInteger('team_id')->nullable();
             $table->string('title');
             $table->string('city')->nullable()->index();
             $table->text('description')->nullable();
@@ -23,6 +23,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique(['entry_id', 'site']);
+            $table->unique(['legacy_id', 'site']);
+            $table->unique(['team_id', 'site']);
             $table->index(['site', 'published', 'hidden', 'visibility']);
         });
     }

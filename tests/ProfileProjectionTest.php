@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Tests;
 
 use Goldnead\Directory\Services\ProfileProjection;
+use Illuminate\Database\QueryException;
 use Mockery;
 use Statamic\Contracts\Entries\Entry;
 
@@ -81,6 +82,17 @@ class ProfileProjectionTest extends TestCase
         ]);
     }
 
+    public function test_trusted_bindings_are_unique_per_site(): void
+    {
+        $this->insertBoundProfile('choir-en', 'en', 'legacy-1', 72);
+        $this->insertBoundProfile('choir-de', 'de', 'legacy-1', 72);
+
+        $this->assertDatabaseCount('directory_profiles', 2);
+
+        $this->expectException(QueryException::class);
+        $this->insertBoundProfile('another-en', 'en', 'legacy-1', 72);
+    }
+
     private function entry(string $id, string $site, array $data): Entry
     {
         $entry = Mockery::mock(Entry::class);
@@ -92,5 +104,21 @@ class ProfileProjectionTest extends TestCase
         $entry->shouldReceive('published')->andReturn(true);
 
         return $entry;
+    }
+
+    private function insertBoundProfile(string $entryId, string $site, string $legacyId, int $teamId): void
+    {
+        \DB::table('directory_profiles')->insert([
+            'entry_id' => $entryId,
+            'site' => $site,
+            'legacy_id' => $legacyId,
+            'team_id' => $teamId,
+            'title' => 'Choir',
+            'visibility' => 'private',
+            'hidden' => true,
+            'published' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 }

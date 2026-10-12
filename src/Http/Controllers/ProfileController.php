@@ -91,6 +91,8 @@ class ProfileController extends Controller
 
     public function update(Request $request, string $entryId): JsonResponse
     {
+        abort_unless($request->user(), 403);
+
         $profile = DirectoryProfile::query()
             ->where('entry_id', $entryId)
             ->where('site', $this->siteHandle($request))
@@ -98,13 +100,13 @@ class ProfileController extends Controller
 
         $entry = $this->canonicalEntry($profile);
         abort_unless($entry, 404);
-        abort_unless($request->user() && $profile->team_id, 403);
+        abort_unless($profile->team_id, 403);
 
         $team = Teams::find($profile->team_id);
         abort_unless($team && Teams::can($request->user(), $team, 'update team'), 403);
 
         if (array_intersect(self::PROTECTED_FIELDS, array_keys($request->all())) !== []) {
-            return response()->json(['message' => 'Protected profile fields cannot be changed here.'], 422);
+            return response()->json(['message' => __('directory::messages.protected_fields')], 422);
         }
 
         $validator = Validator::make($request->all(), [
@@ -114,7 +116,7 @@ class ProfileController extends Controller
         ]);
 
         $validated = $validator->validate();
-        abort_if($validated === [], 422, 'At least one editable profile field is required.');
+        abort_if($validated === [], 422, __('directory::messages.editable_fields_required'));
 
         $fieldMapping = config('directory.fields');
         foreach ($validated as $field => $value) {
@@ -129,9 +131,10 @@ class ProfileController extends Controller
     private function siteHandle(Request $request): string
     {
         $request->validate(['site' => ['sometimes', 'string', 'max:64']]);
-        $site = $request->query('site', Site::current()->handle());
+        $currentSite = Site::current()->handle();
+        $site = $request->query('site', $currentSite);
 
-        abort_unless(Site::get($site), 404);
+        abort_unless($site === $currentSite, 404);
 
         return $site;
     }

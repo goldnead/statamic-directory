@@ -63,6 +63,32 @@ class ProfileAuthorizationTest extends TestCase
         $response = $this->update($actor, ['team_id' => 99]);
 
         $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('Protected profile fields cannot be changed here.', $response->getData(true)['message']);
+    }
+
+    public function test_guest_update_returns_403_for_existing_and_unknown_profile_ids(): void
+    {
+        $this->bindProfile();
+
+        $existing = $this->patchJson('/directory/profiles/profile-1', ['title' => 'Attempt']);
+        $unknown = $this->patchJson('/directory/profiles/missing-profile', ['title' => 'Attempt']);
+
+        $existing->assertForbidden();
+        $unknown->assertForbidden();
+    }
+
+    public function test_request_cannot_select_a_different_configured_site(): void
+    {
+        $currentSite = Mockery::mock();
+        $currentSite->shouldReceive('handle')->andReturn('en');
+        Site::shouldReceive('current')->andReturn($currentSite);
+
+        try {
+            app(ProfileController::class)->index(Request::create('/directory/profiles?site=de'));
+            $this->fail('A request for another site must be hidden from this public host.');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
     }
 
     private function bindProfile(): void

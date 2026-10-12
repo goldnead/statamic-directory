@@ -6,7 +6,7 @@ The Directory addon stores editable choir profiles as Statamic Entries and maint
 
 Set `directory.collection` to the profile collection handle; it defaults to `choirs`. The public field mapping lives in `config/directory.php`. Public responses contain only title, city, and description. Email addresses, evidence, user IDs, and team/legacy bindings are never returned. Public access requires a published Entry, `visibility: public`, and a false `hidden` field. Reads re-check the canonical Entry and return its current whitelisted content, so stale visibility and content fail closed or remain current.
 
-Profile rows are scoped by Statamic site. Requests use the current Statamic site by default and may specify a configured `site` query parameter. Search supports `q` (title or city) and exact `city` filters and returns at most 100 profiles. Radius and map search are not part of this slice.
+Profile rows are scoped by Statamic site. Requests use the current Statamic site; an optional `site` query parameter must match that current site. Other configured sites return 404, which prevents a public host from querying internal-site profiles. Search supports `q` (title or city) and exact `city` filters and returns at most 100 profiles. Radius and map search are not part of this slice.
 
 Team binding is trusted import or moderation work. There is no public create, claim, or bind endpoint. A linked team can edit title, city, and description only when `Teams::can($actor, $team, 'update team')` returns true. Claim verification remains a future Teams extension.
 
