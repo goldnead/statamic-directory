@@ -2,6 +2,7 @@
 
 namespace Goldnead\Directory\Tests;
 
+use Goldnead\Directory\Services\ProfileProjection;
 use Goldnead\Directory\Services\ProfileSearch;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -99,7 +100,7 @@ class ProfileSearchTest extends TestCase
 
             return $entry;
         };
-        $projection = app(\Goldnead\Directory\Services\ProfileProjection::class);
+        $projection = app(ProfileProjection::class);
         $projection->sync($make('ok', ['title' => 'T', 'lat' => '52.5', 'lng' => 13.4, 'choir_type' => 'project']));
         $projection->sync($make('bad', ['title' => 'T', 'lat' => 952, 'lng' => 'x']));
 
