@@ -8,7 +8,11 @@ Set `directory.collection` to the profile collection handle; it defaults to `cho
 
 Profile rows are scoped by Statamic site. Requests use the current Statamic site; an optional `site` query parameter must match that current site. Other configured sites return 404, which prevents a public host from querying internal-site profiles. Search supports `q` (title or city) and exact `city` filters and returns at most 100 profiles. Radius and map search are not part of this slice.
 
-Team binding is trusted import or moderation work. There is no public create, claim, or bind endpoint. A linked team can edit title, city, and description only when `Teams::can($actor, $team, 'update team')` returns true. Claim verification remains a future Teams extension.
+Team binding is owned by Teams' claim lifecycle. There is no Directory public create, claim, or bind endpoint. A linked team can edit title, city, and description only when `Teams::can($actor, $team, 'update team')` returns true.
+
+## Teams claim adapter
+
+`Goldnead\Directory\Claims\DirectoryClaimResource` implements the optional Teams claim resource contract for approved directory claims. Register it as `teams.claims.resources.directory`. It binds only an unbound profile on the current Statamic site whose canonical Entry remains in the configured collection and is not hidden. Private imported drafts may be claimed; the adapter does not publish or modify Entry fields. Teams owns actor authorization and the surrounding transaction.
 
 Title, city, description, visibility, hidden, and publication columns are derived from Entries and can be refreshed in place. `team_id` and `legacy_id` are trusted bindings in the same SQL table; normal Entry sync never changes them, and database restore procedures must preserve or re-import them. Entry save and delete events update or remove rows idempotently. Flat-file saves and SQL writes do not share a transaction, and this slice has no automatic reconciliation job or rebuild command. After a failed projection update, re-save the Entry or call `ProfileProjection::sync($entry)` to retry; public reads continue to check canonical visibility and content. No existing legacy dataset is read by this addon.
 
