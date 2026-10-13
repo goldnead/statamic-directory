@@ -14,6 +14,8 @@ class DirectoryProfile extends Model
     {
         return [
             'team_id' => 'integer',
+            'lat' => 'float',
+            'lng' => 'float',
             'hidden' => 'boolean',
             'published' => 'boolean',
         ];

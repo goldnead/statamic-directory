@@ -3,17 +3,18 @@
 namespace Goldnead\Directory\Http\Controllers;
 
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Services\ProfileSearch;
 use Goldnead\Teams\Facades\Teams;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Validator;
-use Statamic\Contracts\Entries\Entry as EntryContract;
-use Statamic\Facades\Entry;
 use Statamic\Facades\Site;
 
 class ProfileController extends Controller
 {
+    public function __construct(private ProfileSearch $search) {}
+
     private const PROTECTED_FIELDS = [
         'team_id', 'teamId', 'hidden', 'visibility', 'owner', 'owner_id',
         'owner_user_id', 'user', 'user_id', 'userId', 'email', 'contact_email',
@@ -22,59 +23,9 @@ class ProfileController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $request->validate([
-            'q' => ['sometimes', 'string', 'max:255'],
-            'city' => ['sometimes', 'string', 'max:255'],
-            'site' => ['sometimes', 'string', 'max:64'],
-        ]);
+        $params = $request->validate(ProfileSearch::rules());
 
-        $site = $this->siteHandle($request);
-        $query = DirectoryProfile::query()
-            ->where('site', $site)
-            ->where('published', true)
-            ->where('hidden', false)
-            ->where('visibility', 'public');
-
-        if ($request->filled('city')) {
-            $query->whereRaw('LOWER(city) = ?', [mb_strtolower(trim($request->string('city')->toString()))]);
-        }
-
-        if ($request->filled('q')) {
-            $term = '%'.mb_strtolower(trim($request->string('q')->toString())).'%';
-            $query->where(function ($builder) use ($term): void {
-                $builder->whereRaw('LOWER(title) LIKE ?', [$term])->orWhereRaw('LOWER(city) LIKE ?', [$term]);
-            });
-        }
-
-        $data = $query->orderBy('title')->limit(100)->get()
-            ->map(function (DirectoryProfile $profile) use ($request): ?array {
-                $entry = $this->publicCanonicalEntry($profile);
-
-                if (! $entry) {
-                    return null;
-                }
-
-                $data = $this->publicData($profile, $entry);
-
-                if ($request->filled('city') && mb_strtolower(trim((string) $data['city'])) !== mb_strtolower(trim($request->string('city')->toString()))) {
-                    return null;
-                }
-
-                if ($request->filled('q')) {
-                    $needle = mb_strtolower(trim($request->string('q')->toString()));
-                    $haystack = mb_strtolower((string) $data['title'].' '.(string) $data['city']);
-
-                    if (! str_contains($haystack, $needle)) {
-                        return null;
-                    }
-                }
-
-                return $data;
-            })
-            ->filter()
-            ->values();
-
-        return response()->json(['data' => $data]);
+        return response()->json($this->search->search($params, $this->siteHandle($request)));
     }
 
     public function show(Request $request, string $entryId): JsonResponse
@@ -84,9 +35,9 @@ class ProfileController extends Controller
             ->where('site', $this->siteHandle($request))
             ->first();
 
-        abort_unless($profile && ($entry = $this->publicCanonicalEntry($profile)), 404);
+        abort_unless($profile && ($entry = $this->search->publicEntry($profile)), 404);
 
-        return response()->json(['data' => $this->publicData($profile, $entry)]);
+        return response()->json(['data' => $this->search->publicData($profile, $entry)]);
     }
 
     public function update(Request $request, string $entryId): JsonResponse
@@ -98,7 +49,7 @@ class ProfileController extends Controller
             ->where('site', $this->siteHandle($request))
             ->firstOrFail();
 
-        $entry = $this->canonicalEntry($profile);
+        $entry = $this->search->canonicalEntry($profile);
         abort_unless($entry, 404);
         abort_unless($profile->team_id, 403);
 
@@ -125,7 +76,7 @@ class ProfileController extends Controller
 
         $entry->save();
 
-        return response()->json(['data' => $this->publicData($profile, $entry)]);
+        return response()->json(['data' => $this->search->publicData($profile, $entry)]);
     }
 
     private function siteHandle(Request $request): string
@@ -137,55 +88,5 @@ class ProfileController extends Controller
         abort_unless($site === $currentSite, 404);
 
         return $site;
-    }
-
-    private function publicCanonicalEntry(DirectoryProfile $profile): ?EntryContract
-    {
-        if (! $profile->published || $profile->hidden || $profile->visibility !== 'public') {
-            return null;
-        }
-
-        $entry = $this->canonicalEntry($profile);
-
-        if (! $entry || ! $entry->published()) {
-            return null;
-        }
-
-        $fields = config('directory.fields');
-        $data = $entry->data()->all();
-
-        if (($data[$fields['visibility']] ?? null) !== 'public' || (bool) ($data[$fields['hidden']] ?? false)) {
-            return null;
-        }
-
-        return $entry;
-    }
-
-    private function canonicalEntry(DirectoryProfile $profile): ?EntryContract
-    {
-        $entry = Entry::find($profile->entry_id);
-        $entry = $entry?->in($profile->site);
-
-        if (! $entry || (string) $entry->id() !== (string) $profile->entry_id
-            || (string) $entry->locale() !== (string) $profile->site
-            || $entry->collectionHandle() !== config('directory.collection')) {
-            return null;
-        }
-
-        return $entry;
-    }
-
-    private function publicData(DirectoryProfile $profile, EntryContract $entry): array
-    {
-        $fields = config('directory.fields');
-        $source = $entry->data()->all();
-
-        return [
-            'id' => $profile->entry_id,
-            'site' => $profile->site,
-            'title' => $source[$fields['title']] ?? $entry->get('title'),
-            'city' => $source[$fields['city']] ?? null,
-            'description' => $source[$fields['description']] ?? null,
-        ];
     }
 }

@@ -6,6 +6,8 @@ use Statamic\Providers\AddonServiceProvider;
 
 class ServiceProvider extends AddonServiceProvider
 {
+    protected $tags = [Tags\Directory::class];
+
     public function register(): void
     {
         parent::register();
