@@ -12,6 +12,22 @@ Antlers: `{{ directory:search lat="52.5" lng="13.4" radius_km="30" q="" city="" 
 
 Team binding is owned by Teams' claim lifecycle. There is no Directory public create, claim, or bind endpoint. A linked team can edit title, city, and description only when `Teams::can($actor, $team, 'update team')` returns true.
 
+## Multiple profile types
+
+Besides the single `directory.collection` handle, `directory.collections` can list several collections, each with its own field mapping and filters (missing keys fall back to the global `fields` and `filters`):
+
+```php
+'collections' => [
+    'choirs' => ['filters' => ['choir_type' => 'choir_type']],
+    'leaders' => [
+        'fields' => ['title' => 'name', 'city' => 'town'],
+        'filters' => ['focus' => 'focuses'],
+    ],
+],
+```
+
+The first entry is the default type. Without `directory.collections` the old `directory.collection` format works unchanged. The projection stores the handle in a `collection` column (existing rows get the first collection; run `php artisan migrate`), and filter columns are shared across collections. Search, `GET /directory/profiles?type=leaders` and `{{ directory:search type="leaders" }}` take a `type` parameter; without it the first collection is searched. Filter parameters of other types are ignored, an unknown `type` is invalid. Visibility, hidden state, claim adapter and team binding apply per collection as before. Public data now also carries `type`.
+
 ## Teams claim adapter
 
 `Goldnead\Directory\Claims\DirectoryClaimResource` implements the optional Teams claim resource contract for approved directory claims. Register it as `teams.claims.resources.directory`. It binds only an unbound profile on the current Statamic site whose canonical Entry remains in the configured collection and is not hidden. Private imported drafts may be claimed; the adapter does not publish or modify Entry fields. Teams owns actor authorization and the surrounding transaction.

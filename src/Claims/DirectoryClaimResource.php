@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Claims;
 
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Services\Collections;
 use Goldnead\Teams\Contracts\ClaimResource;
 use Goldnead\Teams\Exceptions\ClaimException;
 use Goldnead\Teams\Models\Team;
@@ -36,7 +37,7 @@ class DirectoryClaimResource implements ClaimResource
     {
         $this->assertCurrentSite($site);
         $entry = $this->canonicalEntry($key, $site);
-        $fields = config('directory.fields');
+        $fields = Collections::fields($entry->collectionHandle());
         $data = $entry->data()->all();
         $name = trim((string) ($data[$fields['title']] ?? $entry->get('title') ?? ''));
 
@@ -75,11 +76,11 @@ class DirectoryClaimResource implements ClaimResource
 
         if (! $entry || (string) $entry->id() !== $key
             || (string) $entry->locale() !== $site
-            || $entry->collectionHandle() !== config('directory.collection')) {
+            || ! Collections::has($entry->collectionHandle())) {
             $this->unavailable();
         }
 
-        $hiddenField = config('directory.fields.hidden');
+        $hiddenField = Collections::fields($entry->collectionHandle())['hidden'];
         if ((bool) ($entry->data()->all()[$hiddenField] ?? false)) {
             $this->unavailable();
         }

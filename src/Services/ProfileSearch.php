@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Services;
 
 use Goldnead\Directory\Models\DirectoryProfile;
+use Illuminate\Validation\Rule;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Entry;
 
@@ -16,6 +17,7 @@ class ProfileSearch
             'q' => ['sometimes', 'nullable', 'string', 'max:255'],
             'city' => ['sometimes', 'nullable', 'string', 'max:255'],
             'site' => ['sometimes', 'string', 'max:64'],
+            'type' => ['sometimes', 'nullable', 'string', Rule::in(Collections::handles())],
             'lat' => ['sometimes', 'nullable', 'numeric', 'between:-90,90', 'required_with:lng,radius_km'],
             'lng' => ['sometimes', 'nullable', 'numeric', 'between:-180,180', 'required_with:lat,radius_km'],
             'radius_km' => ['sometimes', 'nullable', 'numeric', 'gt:0', 'max:'.config('directory.search.max_radius_km')],
@@ -23,7 +25,7 @@ class ProfileSearch
             'per_page' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:'.config('directory.search.max_per_page')],
         ];
 
-        foreach (array_keys(config('directory.filters', [])) as $filter) {
+        foreach (Collections::filterColumns() as $filter) {
             $rules[$filter] = ['sometimes', 'nullable', 'string', 'max:255'];
         }
 
@@ -40,7 +42,11 @@ class ProfileSearch
         $perPage = min((int) ($params['per_page'] ?? config('directory.search.per_page')), (int) config('directory.search.max_per_page'));
         $page = max((int) ($params['page'] ?? 1), 1);
 
+        $type = $params['type'] ?? Collections::default();
+        abort_unless(Collections::has($type), 422);
+
         $query = DirectoryProfile::query()
+            ->where('collection', $type)
             ->where('site', $site)
             ->where('published', true)
             ->where('hidden', false)
@@ -55,7 +61,7 @@ class ProfileSearch
             $query->where(fn ($builder) => $builder->whereRaw('LOWER(title) LIKE ?', [$term])->orWhereRaw('LOWER(city) LIKE ?', [$term]));
         }
 
-        foreach (array_keys(config('directory.filters', [])) as $filter) {
+        foreach (array_keys(Collections::filters($type)) as $filter) {
             if (isset($params[$filter])) {
                 $query->where($filter, $params[$filter]);
             }
@@ -118,7 +124,7 @@ class ProfileSearch
             return null;
         }
 
-        $fields = config('directory.fields');
+        $fields = Collections::fields($entry->collectionHandle());
         $data = $entry->data()->all();
 
         if (($data[$fields['visibility']] ?? null) !== 'public' || (bool) ($data[$fields['hidden']] ?? false)) {
@@ -135,7 +141,8 @@ class ProfileSearch
 
         if (! $entry || (string) $entry->id() !== (string) $profile->entry_id
             || (string) $entry->locale() !== (string) $profile->site
-            || $entry->collectionHandle() !== config('directory.collection')) {
+            || $entry->collectionHandle() !== ($profile->collection ?? Collections::default())
+            || ! Collections::has($entry->collectionHandle())) {
             return null;
         }
 
@@ -144,11 +151,12 @@ class ProfileSearch
 
     public function publicData(DirectoryProfile $profile, EntryContract $entry): array
     {
-        $fields = config('directory.fields');
+        $fields = Collections::fields($entry->collectionHandle());
         $source = $entry->data()->all();
 
         return [
             'id' => $profile->entry_id,
+            'type' => $entry->collectionHandle(),
             'site' => $profile->site,
             'title' => $source[$fields['title']] ?? $entry->get('title'),
             'city' => $source[$fields['city']] ?? null,

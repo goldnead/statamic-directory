@@ -9,13 +9,15 @@ class ProfileProjection
 {
     public function sync(Entry $entry): void
     {
-        if ($entry->collectionHandle() !== config('directory.collection')) {
+        $collection = $entry->collectionHandle();
+
+        if (! Collections::has($collection)) {
             $this->hide($entry);
 
             return;
         }
 
-        $fields = config('directory.fields');
+        $fields = Collections::fields($collection);
         $entryData = $entry->data()->all();
         $title = (string) ($entryData[$fields['title']] ?? $entry->get('title') ?? '');
 
@@ -25,13 +27,14 @@ class ProfileProjection
             return;
         }
 
-        $filterValues = [];
-        foreach (config('directory.filters', []) as $column => $field) {
+        $filterValues = array_fill_keys(Collections::filterColumns(), null);
+        foreach (Collections::filters($collection) as $column => $field) {
             $filterValues[$column] = $this->nullableString($entryData[$field] ?? null);
         }
 
         $identity = ['entry_id' => (string) $entry->id(), 'site' => (string) $entry->locale()];
         $projectionValues = [
+            'collection' => $collection,
             'title' => $title,
             'city' => $this->nullableString($entryData[$fields['city']] ?? null),
             'description' => $this->nullableString($entryData[$fields['description']] ?? null),

@@ -1,5 +1,6 @@
 <?php
 
+use Goldnead\Directory\Services\Collections;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -15,7 +16,7 @@ return new class extends Migration
                 $table->index(['site', 'lat', 'lng']);
             }
 
-            foreach (array_keys(config('directory.filters', [])) as $column) {
+            foreach (Collections::filterColumns() as $column) {
                 if (! Schema::hasColumn('directory_profiles', $column)) {
                     $table->string($column)->nullable()->index();
                 }
@@ -27,7 +28,7 @@ return new class extends Migration
     {
         Schema::table('directory_profiles', function (Blueprint $table): void {
             $table->dropIndex(['site', 'lat', 'lng']);
-            $table->dropColumn(array_merge(['lat', 'lng'], array_keys(config('directory.filters', []))));
+            $table->dropColumn(array_merge(['lat', 'lng'], Collections::filterColumns()));
         });
     }
 };

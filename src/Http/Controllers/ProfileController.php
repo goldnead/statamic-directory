@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Http\Controllers;
 
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Services\Collections;
 use Goldnead\Directory\Services\ProfileSearch;
 use Goldnead\Teams\Facades\Teams;
 use Illuminate\Http\JsonResponse;
@@ -69,7 +70,7 @@ class ProfileController extends Controller
         $validated = $validator->validate();
         abort_if($validated === [], 422, __('directory::messages.editable_fields_required'));
 
-        $fieldMapping = config('directory.fields');
+        $fieldMapping = Collections::fields($entry->collectionHandle());
         foreach ($validated as $field => $value) {
             $entry->set($fieldMapping[$field] ?? $field, $value);
         }
