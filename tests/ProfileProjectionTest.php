@@ -4,6 +4,8 @@ namespace Goldnead\Directory\Tests;
 
 use Goldnead\Directory\Services\ProfileProjection;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Statamic\Contracts\Entries\Entry;
 
@@ -12,6 +14,14 @@ class ProfileProjectionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        if (! Schema::hasTable('teams')) {
+            Schema::create('teams', function (Blueprint $table): void {
+                $table->id();
+            });
+        }
+        Schema::enableForeignKeyConstraints();
+        \DB::table('teams')->insert(['id' => 72]);
 
         $this->artisan('migrate', [
             '--path' => __DIR__.'/../database/migrations',
@@ -91,6 +101,37 @@ class ProfileProjectionTest extends TestCase
 
         $this->expectException(QueryException::class);
         $this->insertBoundProfile('another-en', 'en', 'legacy-1', 72);
+    }
+
+    public function test_deleting_a_team_clears_its_directory_binding(): void
+    {
+        $this->insertBoundProfile('choir-en', 'en', 'legacy-1', 72);
+
+        \DB::table('teams')->where('id', 72)->delete();
+
+        $this->assertDatabaseHas('directory_profiles', [
+            'entry_id' => 'choir-en',
+            'site' => 'en',
+            'team_id' => null,
+        ]);
+    }
+
+    public function test_foreign_key_migration_clears_orphans_and_keeps_valid_bindings(): void
+    {
+        $migration = require __DIR__.'/../database/migrations/2026_10_13_000000_add_team_foreign_key_to_directory_profiles.php';
+        $migration->down();
+
+        $this->insertBoundProfile('valid-profile', 'en', 'valid-legacy', 72);
+        $this->insertBoundProfile('orphan-profile', 'en', 'orphan-legacy', 999);
+
+        $migration->up();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'valid-profile', 'team_id' => 72]);
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'orphan-profile', 'team_id' => null]);
+
+        \DB::table('teams')->where('id', 72)->delete();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'valid-profile', 'team_id' => null]);
     }
 
     private function entry(string $id, string $site, array $data): Entry

@@ -6,8 +6,10 @@ use Goldnead\Directory\Http\Controllers\ProfileController;
 use Goldnead\Teams\Facades\Teams;
 use Goldnead\Teams\Models\Team;
 use Illuminate\Auth\GenericUser;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Mockery;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Entry;
@@ -19,6 +21,14 @@ class ProfileAuthorizationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        if (! Schema::hasTable('teams')) {
+            Schema::create('teams', function (Blueprint $table): void {
+                $table->id();
+            });
+        }
+        Schema::enableForeignKeyConstraints();
+        \DB::table('teams')->insert(['id' => 4]);
 
         $this->artisan('migrate', [
             '--path' => __DIR__.'/../database/migrations',
