@@ -32,7 +32,29 @@ The first entry is the default type. Without `directory.collections` the old `di
 
 `Goldnead\Directory\Claims\DirectoryClaimResource` implements the optional Teams claim resource contract for approved directory claims. Register it as `teams.claims.resources.directory`. It binds only an unbound profile on the current Statamic site whose canonical Entry remains in the configured collection and is not hidden. Private imported drafts may be claimed; the adapter does not publish or modify Entry fields. Teams owns actor authorization and the surrounding transaction.
 
-Title, city, description, visibility, hidden, and publication columns are derived from Entries and can be refreshed in place. `team_id` and `legacy_id` are trusted bindings in the same SQL table; normal Entry sync never changes them, and database restore procedures must preserve or re-import them. Entry save and delete events update or remove rows idempotently. Flat-file saves and SQL writes do not share a transaction, and this slice has no automatic reconciliation job or rebuild command. After a failed projection update, re-save the Entry or call `ProfileProjection::sync($entry)` to retry; public reads continue to check canonical visibility and content. No existing legacy dataset is read by this addon.
+Title, city, description, visibility, hidden, and publication columns are derived from Entries and can be refreshed in place. `team_id` and `legacy_id` are trusted bindings in the same SQL table; normal Entry sync never changes them, and database restore procedures must preserve or re-import them. Entry save and delete events update or remove rows idempotently. Flat-file saves and SQL writes do not share a transaction, and this slice has no scheduled reconciliation. After a failed projection update, re-save the Entry, call `ProfileProjection::sync($entry)` or run `php artisan directory:rebuild` to retry; public reads continue to check canonical visibility and content. No existing legacy dataset is read by this addon.
+
+## Control Panel
+
+The nav item **Directory** (Tools section, translatable, English source strings with a German translation) lists the projected profiles of every configured type in core's native listing. Columns: title, type, city, visibility, hidden, team bound, coordinates, last synced. Search matches title and city. Filters: type, visibility, hidden, team bound, has coordinates. A title links to the canonical Entry edit screen.
+
+Permissions: `view directory` opens the listing, status and widget; `manage directory` (a child of `view directory`) allows the actions below. Without them the CP answers 403 (JSON) or redirects to the dashboard with an error (HTML).
+
+- **Rebuild projection** (header button, `manage directory`) queues the `RebuildProjection` job for all entries; a row action rebuilds one profile. The page shows queued, running (with progress) and finished status and refreshes itself while a job runs. Only one rebuild runs at a time.
+- **Unbind team** (row action, destructive, asks for confirmation, `manage directory`) clears `team_id` so the profile can be claimed again. It is written to the log and, when `goldnead/statamic-activity` is installed, to the activity ledger as `directory.profile_team_unbound`.
+- **Dashboard widget** `directory` (add it in `config/statamic/cp.php` or via the dashboard) shows per type: total, public, private and profiles without coordinates.
+
+The same rebuild is available on the command line:
+
+```bash
+php artisan directory:rebuild                  # all types, synchronous
+php artisan directory:rebuild --collection=leaders
+php artisan directory:rebuild --entry=<id>
+php artisan directory:rebuild --queue          # as a queued job
+php artisan directory:rebuild --prune          # also drop rows whose Entry is gone
+```
+
+A rebuild only rewrites derived columns; `team_id` and `legacy_id` are never touched. The built Control Panel bundle lives in `resources/dist` and is committed; rebuild it with `npm install && npm run build` after changing `resources/js`.
 
 ## Routes
 
@@ -40,9 +62,17 @@ Title, city, description, visibility, hidden, and publication columns are derive
 - `GET /directory/profiles/{entryId}?site=...` returns `{ "data": {...} }`.
 - `PATCH /directory/profiles/{entryId}?site=...` accepts `title`, `city`, and `description` from an authenticated authorized team member.
 
+## Requirements
+
+PHP 8.3 or newer, Statamic 6 and `goldnead/statamic-teams`.
+
 ## Install
 
 ```bash
 composer require goldnead/statamic-directory
 php artisan migrate
 ```
+
+## Usage
+
+Create the profile collections, list them in `directory.collections`, then use the Control Panel, the routes above or the `{{ directory:search }}` tag. Run `php artisan directory:rebuild` once to project existing entries.

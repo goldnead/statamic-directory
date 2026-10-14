@@ -1,0 +1,4 @@
+/* Directory CP styles: Statamic's own token layer, no Preflight. */
+@import "@statamic/cms/tailwind.css";
+
+@source "../js/**/*.{vue,js}";
