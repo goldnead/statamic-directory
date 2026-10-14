@@ -2,11 +2,23 @@
 
 namespace Goldnead\Directory;
 
+use Statamic\Facades\CP\Nav;
+use Statamic\Facades\Permission;
 use Statamic\Providers\AddonServiceProvider;
 
 class ServiceProvider extends AddonServiceProvider
 {
-    protected $tags = [Tags\Directory::class];
+    // Tags, widgets and the filters in src/Scopes are discovered by core.
+    protected $commands = [Console\RebuildCommand::class];
+
+    /** The three values must byte-match `laravel()` in vite.config.js. */
+    protected $vite = [
+        'input' => [
+            'resources/js/cp.js',
+            'resources/css/cp.css',
+        ],
+        'publicDirectory' => 'resources/dist',
+    ];
 
     public function register(): void
     {
@@ -21,5 +33,35 @@ class ServiceProvider extends AddonServiceProvider
     public function bootAddon()
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+
+        $this->registerNavigation()->registerPermissions();
+    }
+
+    protected function registerNavigation(): self
+    {
+        Nav::extend(function ($nav): void {
+            $nav->create(__('directory::cp.nav'))
+                ->section('Tools')
+                ->icon('map-search')
+                ->route('directory.index')
+                ->can('view directory');
+        });
+
+        return $this;
+    }
+
+    protected function registerPermissions(): self
+    {
+        Permission::extend(function (): void {
+            Permission::group('directory', __('directory::cp.nav'), function (): void {
+                Permission::register('view directory')
+                    ->label(__('directory::cp.permission_view'))
+                    ->children([
+                        Permission::make('manage directory')->label(__('directory::cp.permission_manage')),
+                    ]);
+            });
+        });
+
+        return $this;
     }
 }
