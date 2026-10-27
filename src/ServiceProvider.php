@@ -28,6 +28,14 @@ class ServiceProvider extends AddonServiceProvider
         $overrides = $this->app['config']->get('directory', []);
 
         $this->app['config']->set('directory', array_replace_recursive($defaults, $overrides));
+
+        $this->app->singleton(Search\SearchEngine::class, function ($app): Search\SearchEngine {
+            $config = (array) config('directory.search.meilisearch');
+
+            return config('directory.search.driver') === 'meilisearch' && ! empty($config['host'])
+                ? new Search\MeilisearchEngine($config)
+                : new Search\NullEngine;
+        });
     }
 
     public function bootAddon()

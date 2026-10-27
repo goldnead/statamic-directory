@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Optional Meilisearch driver for the `q` text search (typo tolerance, relevance, synonyms). Set `DIRECTORY_SEARCH_DRIVER=meilisearch` and `MEILISEARCH_HOST` (`MEILISEARCH_KEY`, `DIRECTORY_MEILISEARCH_PREFIX` optional), then run `php artisan directory:rebuild` to create the indexes and fill them. Talks to the Meilisearch REST API through Laravel's HTTP client, no new package. Only public, published, visible profiles are indexed (title, city); visibility is checked again against the Entry on output. Without a host, or when Meilisearch fails, search stays on SQL.
+
 ## 0.1.1 — 2026-10-15
 
 ### Fixed

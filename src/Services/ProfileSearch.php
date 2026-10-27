@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Services;
 
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Search\SearchEngine;
 use Illuminate\Validation\Rule;
 use Statamic\Contracts\Entries\Entry as EntryContract;
 use Statamic\Facades\Entry;
@@ -56,7 +57,12 @@ class ProfileSearch
             $query->whereRaw('LOWER(city) = ?', [mb_strtolower(trim($params['city']))]);
         }
 
-        if (isset($params['q'])) {
+        // Ranked entry ids from the search engine; null = no engine or engine failed, SQL decides.
+        $ranked = isset($params['q']) ? $this->rank($type, $site, (string) $params['q']) : null;
+
+        if ($ranked !== null) {
+            $query->whereIn('entry_id', $ranked ?: ['']);
+        } elseif (isset($params['q'])) {
             $term = '%'.mb_strtolower(trim($params['q'])).'%';
             $query->where(fn ($builder) => $builder->whereRaw('LOWER(title) LIKE ?', [$term])->orWhereRaw('LOWER(city) LIKE ?', [$term]));
         }
@@ -88,6 +94,11 @@ class ProfileSearch
             $rows = $rows->sortBy([['distance_km', 'asc'], ['title', 'asc']])->values();
             $total = $rows->count();
             $rows = $rows->slice(($page - 1) * $perPage, $perPage);
+        } elseif ($ranked !== null) {
+            $position = array_flip($ranked);
+            $rows = $query->get()->sortBy(fn (DirectoryProfile $p) => $position[$p->entry_id] ?? PHP_INT_MAX)->values();
+            $total = $rows->count();
+            $rows = $rows->slice(($page - 1) * $perPage, $perPage);
         } else {
             $total = (clone $query)->count();
             $rows = $query->orderBy('title')->orderBy('id')->offset(($page - 1) * $perPage)->limit($perPage)->get();
@@ -95,11 +106,11 @@ class ProfileSearch
 
         // Pages are cut from the index; a profile whose Entry turned non-public since the last
         // projection is dropped here, so a page can be shorter than per_page.
-        $data = $rows->map(function (DirectoryProfile $profile) use ($params): ?array {
+        $data = $rows->map(function (DirectoryProfile $profile) use ($params, $ranked): ?array {
             $entry = $this->publicEntry($profile);
             $data = $entry ? $this->publicData($profile, $entry) : null;
 
-            if (! $data || ! $this->matchesCurrentData($data, $params)) {
+            if (! $data || ! $this->matchesCurrentData($data, $ranked !== null ? array_diff_key($params, ['q' => true]) : $params)) {
                 return null;
             }
 
@@ -162,6 +173,14 @@ class ProfileSearch
             'city' => $source[$fields['city']] ?? null,
             'description' => $source[$fields['description']] ?? null,
         ];
+    }
+
+    /** @return list<string>|null */
+    private function rank(string $type, string $site, string $q): ?array
+    {
+        $engine = app(SearchEngine::class);
+
+        return $engine->enabled() ? $engine->search($type, $site, trim($q), (int) config('directory.search.max_hits')) : null;
     }
 
     private function matchesCurrentData(array $data, array $params): bool

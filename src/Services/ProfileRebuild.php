@@ -2,6 +2,7 @@
 
 namespace Goldnead\Directory\Services;
 
+use Goldnead\Directory\Search\SearchEngine;
 use Illuminate\Support\Facades\DB;
 use Statamic\Facades\Entry;
 
@@ -24,6 +25,10 @@ class ProfileRebuild
         $total = count($entries);
         $processed = 0;
         $seen = [];
+
+        foreach ($handles as $handle) {
+            app(SearchEngine::class)->configure($handle);
+        }
 
         foreach ($entries as $entry) {
             $this->projection->sync($entry);
@@ -75,11 +80,12 @@ class ProfileRebuild
         $stale = [];
 
         DB::table('directory_profiles')->whereIn('collection', $handles)
-            ->select(['id', 'entry_id', 'site'])
+            ->select(['id', 'entry_id', 'site', 'collection'])
             ->orderBy('id')
             ->each(function ($row) use ($seen, &$stale): void {
                 if (! isset($seen[$row->entry_id.'|'.$row->site])) {
                     $stale[] = $row->id;
+                    app(SearchEngine::class)->delete($row->collection, $row->entry_id, $row->site);
                 }
             });
 

@@ -2,6 +2,7 @@
 
 namespace Goldnead\Directory\Services;
 
+use Goldnead\Directory\Search\SearchEngine;
 use Illuminate\Support\Facades\DB;
 use Statamic\Contracts\Entries\Entry;
 
@@ -51,10 +52,14 @@ class ProfileProjection
             ['entry_id', 'site'],
             array_keys($projectionValues)
         );
+
+        $this->index($collection, $identity, $projectionValues);
     }
 
     public function forget(Entry $entry): void
     {
+        $this->unindex($entry);
+
         DB::table('directory_profiles')
             ->where('entry_id', (string) $entry->id())
             ->where('site', (string) $entry->locale())
@@ -63,10 +68,51 @@ class ProfileProjection
 
     private function hide(Entry $entry): void
     {
+        $this->unindex($entry);
+
         DB::table('directory_profiles')
             ->where('entry_id', (string) $entry->id())
             ->where('site', (string) $entry->locale())
             ->update(['published' => false, 'hidden' => true, 'updated_at' => now()]);
+    }
+
+    /** Only public, published, visible profiles live in the index; everything else is removed. */
+    private function index(string $collection, array $identity, array $values): void
+    {
+        $engine = $this->engine();
+
+        if (! $engine->enabled()) {
+            return;
+        }
+
+        if ($values['published'] && ! $values['hidden'] && $values['visibility'] === 'public') {
+            $engine->upsert($collection, $identity['entry_id'], $identity['site'], ['title' => $values['title'], 'city' => $values['city']]);
+        } else {
+            $engine->delete($collection, $identity['entry_id'], $identity['site']);
+        }
+    }
+
+    private function unindex(Entry $entry): void
+    {
+        $engine = $this->engine();
+
+        if (! $engine->enabled()) {
+            return;
+        }
+
+        // The projection row knows which collection the document was indexed under.
+        $collections = DB::table('directory_profiles')
+            ->where('entry_id', (string) $entry->id())->where('site', (string) $entry->locale())
+            ->pluck('collection')->all();
+
+        foreach ($collections as $collection) {
+            $engine->delete((string) $collection, (string) $entry->id(), (string) $entry->locale());
+        }
+    }
+
+    private function engine(): SearchEngine
+    {
+        return app(SearchEngine::class);
     }
 
     private function coordinate(mixed $value, int $limit): ?float
