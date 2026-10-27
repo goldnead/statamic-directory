@@ -3,6 +3,7 @@
 namespace Goldnead\Directory\Search;
 
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -14,6 +15,10 @@ use Throwable;
  */
 class MeilisearchEngine implements SearchEngine
 {
+    private const DOWN_KEY = 'directory.search.engine_down';
+
+    private const DOWN_SECONDS = 60;
+
     public function __construct(private array $config) {}
 
     public function enabled(): bool
@@ -51,6 +56,10 @@ class MeilisearchEngine implements SearchEngine
 
     public function search(string $collection, string $site, string $query, int $limit): ?array
     {
+        if (Cache::has(self::DOWN_KEY)) {
+            return null;
+        }
+
         try {
             $response = $this->http()->post($this->index($collection).'/search', [
                 'q' => $query,
@@ -65,15 +74,29 @@ class MeilisearchEngine implements SearchEngine
                 return null;
             }
 
-            return array_values(array_map(
+            $ids = array_values(array_map(
                 fn (array $hit): string => (string) $hit['entry_id'],
                 array_filter((array) $response->json('hits'), fn ($hit) => is_array($hit) && isset($hit['entry_id']))
             ));
+
+            // Zero hits from an index that holds nothing yet (engine just switched on, rebuild
+            // pending) is "not ready", not "no such choir": the caller falls back to SQL.
+            return $ids === [] && ! $this->hasDocuments($collection) ? null : $ids;
         } catch (Throwable $e) {
-            Log::warning('directory: Meilisearch search failed', ['error' => $e->getMessage()]);
+            Cache::put(self::DOWN_KEY, true, self::DOWN_SECONDS);
+            Log::warning('directory: Meilisearch unreachable, using SQL for '.self::DOWN_SECONDS.'s', ['error' => $e->getMessage()]);
 
             return null;
         }
+    }
+
+    private function hasDocuments(string $collection): bool
+    {
+        return Cache::remember('directory.search.has_documents.'.$collection, self::DOWN_SECONDS, function () use ($collection): bool {
+            $response = $this->http()->get($this->index($collection).'/stats');
+
+            return ! $response->successful() || (int) $response->json('numberOfDocuments') > 0;
+        });
     }
 
     private function send(string $action, callable $request): void
@@ -91,7 +114,7 @@ class MeilisearchEngine implements SearchEngine
 
     private function http(): PendingRequest
     {
-        $http = Http::baseUrl(rtrim((string) $this->config['host'], '/'))->acceptJson()->timeout((int) ($this->config['timeout'] ?? 3));
+        $http = Http::baseUrl(rtrim((string) $this->config['host'], '/'))->acceptJson()->connectTimeout(1)->timeout((int) ($this->config['timeout'] ?? 3));
 
         return ($this->config['key'] ?? null) ? $http->withToken((string) $this->config['key']) : $http;
     }

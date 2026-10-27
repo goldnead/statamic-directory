@@ -6,7 +6,9 @@ use Goldnead\Directory\Search\MeilisearchEngine;
 use Goldnead\Directory\Search\NullEngine;
 use Goldnead\Directory\Search\SearchEngine;
 use Goldnead\Directory\Tests\TestCase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class MeilisearchEngineTest extends TestCase
@@ -57,6 +59,54 @@ class MeilisearchEngineTest extends TestCase
         Http::fake(['*' => Http::response('boom', 500)]);
 
         $this->assertNull(app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
+    }
+
+    public function test_connection_failure_sets_a_down_marker_and_skips_the_engine_afterwards(): void
+    {
+        Cache::flush();
+        $attempts = 0;
+        Http::fake(['*' => function () use (&$attempts) {
+            $attempts++;
+
+            throw new ConnectionException('refused');
+        }]);
+
+        $engine = app(SearchEngine::class);
+        $this->assertNull($engine->search('choirs', 'de', 'x', 10));
+        $this->assertNull($engine->search('choirs', 'de', 'x', 10));
+
+        $this->assertSame(1, $attempts);
+    }
+
+    public function test_requests_use_a_short_connect_timeout(): void
+    {
+        $method = new \ReflectionMethod(MeilisearchEngine::class, 'http');
+        $options = $method->invoke(app(SearchEngine::class))->getOptions();
+
+        $this->assertSame(1, $options['connect_timeout']);
+        $this->assertSame(3, $options['timeout']);
+    }
+
+    public function test_empty_result_from_an_empty_index_counts_as_unavailable(): void
+    {
+        Cache::flush();
+        Http::fake([
+            '*/search' => Http::response(['hits' => []]),
+            '*/stats' => Http::response(['numberOfDocuments' => 0]),
+        ]);
+
+        $this->assertNull(app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
+    }
+
+    public function test_empty_result_from_a_filled_index_is_a_real_zero(): void
+    {
+        Cache::flush();
+        Http::fake([
+            '*/search' => Http::response(['hits' => []]),
+            '*/stats' => Http::response(['numberOfDocuments' => 42]),
+        ]);
+
+        $this->assertSame([], app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
     }
 
     public function test_upsert_sends_only_public_fields(): void
