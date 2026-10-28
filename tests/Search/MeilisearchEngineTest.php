@@ -109,6 +109,36 @@ class MeilisearchEngineTest extends TestCase
         $this->assertSame([], app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
     }
 
+    public function test_stats_failure_falls_back_and_is_not_cached(): void
+    {
+        Cache::flush();
+        $stats = 0;
+        Http::fake([
+            '*/search' => Http::response(['hits' => []]),
+            '*/stats' => function () use (&$stats) {
+                return ++$stats === 1 ? Http::response('boom', 500) : Http::response(['numberOfDocuments' => 42]);
+            },
+        ]);
+
+        $engine = app(SearchEngine::class);
+        $this->assertNull($engine->search('choirs', 'de', 'x', 10));
+        $this->assertSame([], $engine->search('choirs', 'de', 'x', 10));
+    }
+
+    public function test_a_broken_cache_store_never_breaks_search(): void
+    {
+        Cache::shouldReceive('has')->andThrow(new \RuntimeException('cache down'));
+        Cache::shouldReceive('put')->andThrow(new \RuntimeException('cache down'));
+        Cache::shouldReceive('remember')->andThrow(new \RuntimeException('cache down'));
+        Cache::shouldReceive('forget')->andThrow(new \RuntimeException('cache down'));
+        Http::fake(['*' => Http::response(['hits' => [['entry_id' => 'a']]])]);
+
+        $this->assertSame(['a'], app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
+
+        Http::fake(['*' => fn () => throw new ConnectionException('refused')]);
+        $this->assertNull(app(SearchEngine::class)->search('choirs', 'de', 'x', 10));
+    }
+
     public function test_upsert_sends_only_public_fields(): void
     {
         Http::fake(['*' => Http::response(['taskUid' => 1], 202)]);

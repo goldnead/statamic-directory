@@ -56,6 +56,10 @@ php artisan directory:rebuild --prune          # also drop rows whose Entry is g
 
 A rebuild only rewrites derived columns; `team_id` and `legacy_id` are never touched. The built Control Panel bundle lives in `resources/dist` and is committed; rebuild it with `npm install && npm run build` after changing `resources/js`.
 
+## Meilisearch (optional)
+
+Set `DIRECTORY_SEARCH_DRIVER=meilisearch`, `MEILISEARCH_HOST` and optionally `MEILISEARCH_KEY` for typo-tolerant `q` search. **Run a complete `php artisan directory:rebuild` first, switch the driver afterwards.** A partly filled index returns real but incomplete results; only a completely empty index falls back to SQL. Without a host, or while Meilisearch is unreachable (60 s marker), search uses SQL.
+
 ## Routes
 
 - `GET /directory/profiles?q=...&city=...&lat=...&lng=...&radius_km=...&page=...&per_page=...&site=...` returns `{ "data": [...] }`.

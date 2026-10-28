@@ -56,7 +56,7 @@ class MeilisearchEngine implements SearchEngine
 
     public function search(string $collection, string $site, string $query, int $limit): ?array
     {
-        if (Cache::has(self::DOWN_KEY)) {
+        if ($this->isDown()) {
             return null;
         }
 
@@ -81,22 +81,61 @@ class MeilisearchEngine implements SearchEngine
 
             // Zero hits from an index that holds nothing yet (engine just switched on, rebuild
             // pending) is "not ready", not "no such choir": the caller falls back to SQL.
-            return $ids === [] && ! $this->hasDocuments($collection) ? null : $ids;
+            return $ids === [] && $this->hasDocuments($collection) !== true ? null : $ids;
         } catch (Throwable $e) {
-            Cache::put(self::DOWN_KEY, true, self::DOWN_SECONDS);
+            $this->markDown();
             Log::warning('directory: Meilisearch unreachable, using SQL for '.self::DOWN_SECONDS.'s', ['error' => $e->getMessage()]);
 
             return null;
         }
     }
 
-    private function hasDocuments(string $collection): bool
+    /** True/false from the stats, null when unknown (never cached, caller falls back to SQL). */
+    private function hasDocuments(string $collection): ?bool
     {
-        return Cache::remember('directory.search.has_documents.'.$collection, self::DOWN_SECONDS, function () use ($collection): bool {
-            $response = $this->http()->get($this->index($collection).'/stats');
+        $key = 'directory.search.has_documents.'.$collection;
 
-            return ! $response->successful() || (int) $response->json('numberOfDocuments') > 0;
-        });
+        try {
+            if (Cache::get($key) === true) {
+                return true;
+            }
+        } catch (Throwable) {
+            // Cache is an optimisation only.
+        }
+
+        $response = $this->http()->get($this->index($collection).'/stats');
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $has = (int) $response->json('numberOfDocuments') > 0;
+
+        if ($has) {
+            try {
+                Cache::put($key, true, self::DOWN_SECONDS);
+            } catch (Throwable) {
+            }
+        }
+
+        return $has;
+    }
+
+    private function isDown(): bool
+    {
+        try {
+            return Cache::has(self::DOWN_KEY);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function markDown(): void
+    {
+        try {
+            Cache::put(self::DOWN_KEY, true, self::DOWN_SECONDS);
+        } catch (Throwable) {
+        }
     }
 
     private function send(string $action, callable $request): void
