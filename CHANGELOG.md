@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-16
+
+### Changed
+
+- `composer.json` requires `goldnead/statamic-teams` `^0.5` (was `^0.4`). Composer treats a 0.x minor as breaking, so `^0.4` did not accept teams 0.5.0 and a site could not install both. No code change: teams 0.5 only adds (more than one role per member, new events and a migration), the directory uses no part of it that changed.
+
+### Upgrading
+
+- Update `goldnead/statamic-teams` to 0.5 and run `php artisan migrate` for its new tables.
+
 ## 0.2.0 — 2026-10-28
 
 ### Added
