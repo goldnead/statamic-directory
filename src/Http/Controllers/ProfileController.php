@@ -75,7 +75,9 @@ class ProfileController extends Controller
             $entry->set($fieldMapping[$field] ?? $field, $value);
         }
 
-        $entry->save();
+        // save() returns false when an EntrySaving listener vetoes the write;
+        // answering with the unsaved data would show the editor a success.
+        abort_if($entry->save() === false, 422, __('directory::messages.save_rejected'));
 
         return response()->json(['data' => $this->search->publicData($profile, $entry)]);
     }
