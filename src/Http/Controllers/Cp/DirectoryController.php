@@ -135,7 +135,11 @@ class DirectoryController extends Controller
         try {
             RebuildProjection::dispatch($collection, $entryId);
         } catch (Throwable $e) {
-            RebuildStatus::put('failed', ['message' => $e->getMessage()]);
+            // With the sync driver the job has already recorded its own failure.
+            if ((RebuildStatus::get()['state'] ?? null) !== 'failed') {
+                RebuildStatus::put('failed', ['error' => $e->getMessage()]);
+            }
+
             report($e);
             Toast::error(__('directory::cp.rebuild_failed'));
 

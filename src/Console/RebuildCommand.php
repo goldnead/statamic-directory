@@ -37,7 +37,11 @@ class RebuildCommand extends Command
             try {
                 RebuildProjection::dispatch($collection, $entry, (bool) $this->option('prune'));
             } catch (Throwable $e) {
-                RebuildStatus::put('failed', ['message' => $e->getMessage()]);
+                // With the sync driver the job has already recorded its own failure.
+                if ((RebuildStatus::get()['state'] ?? null) !== 'failed') {
+                    RebuildStatus::put('failed', ['error' => $e->getMessage()]);
+                }
+
                 report($e);
                 $this->error("Rebuild could not be queued: {$e->getMessage()}");
 

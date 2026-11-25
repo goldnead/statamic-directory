@@ -129,6 +129,28 @@ class RebuildTest extends CpTestCase
         $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
     }
 
+    public function test_prune_refuses_for_an_empty_collection_even_when_another_one_has_entries(): void
+    {
+        config(['directory.collections' => ['choirs' => [], 'leaders' => []]]);
+        Collection::make('leaders')->save();
+        $this->profile(['entry_id' => 'l-ghost', 'collection' => 'leaders']);
+
+        $this->artisan('directory:rebuild', ['--prune' => true])->assertFailed();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'l-ghost']);
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'e1']);
+    }
+
+    public function test_prune_with_an_entry_filter_never_deletes(): void
+    {
+        $this->choirsWithoutEntriesButAGhostRow();
+        Entry::make()->id('e3')->collection('choirs')->data(['title' => 'Drei'])->save();
+
+        $this->artisan('directory:rebuild', ['--entry' => 'e3', '--prune' => true])->assertSuccessful();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
+    }
+
     public function test_failed_prune_job_records_the_reason_in_the_status(): void
     {
         $this->choirsWithoutEntriesButAGhostRow();
@@ -182,7 +204,7 @@ class RebuildTest extends CpTestCase
         $this->post('/cp/directory/rebuild')->assertRedirect();
 
         $this->assertSame('failed', RebuildStatus::get()['state']);
-        $this->assertSame('queue down', RebuildStatus::get()['message']);
+        $this->assertSame('queue down', RebuildStatus::get()['error']);
     }
 
     public function test_queue_option_fails_when_dispatch_fails(): void
@@ -192,7 +214,7 @@ class RebuildTest extends CpTestCase
         $this->artisan('directory:rebuild', ['--queue' => true])->assertFailed();
 
         $this->assertSame('failed', RebuildStatus::get()['state']);
-        $this->assertSame('queue down', RebuildStatus::get()['message']);
+        $this->assertSame('queue down', RebuildStatus::get()['error']);
     }
 
     private function breakQueue(): void

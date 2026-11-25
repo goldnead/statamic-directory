@@ -25,6 +25,7 @@ class ProfileRebuild
         $total = count($entries);
         $processed = 0;
         $seen = [];
+        $perCollection = [];
 
         foreach ($handles as $handle) {
             app(SearchEngine::class)->configure($handle);
@@ -33,6 +34,7 @@ class ProfileRebuild
         foreach ($entries as $entry) {
             $this->projection->sync($entry);
             $seen[$entry->id().'|'.$entry->locale()] = true;
+            $perCollection[$entry->collectionHandle()] = ($perCollection[$entry->collectionHandle()] ?? 0) + 1;
             $processed++;
 
             if ($progress !== null && ($processed % 25 === 0 || $processed === $total)) {
@@ -40,7 +42,7 @@ class ProfileRebuild
             }
         }
 
-        $pruned = $prune && $entryId === null ? $this->prune($handles, $seen, $total) : 0;
+        $pruned = $prune && $entryId === null ? $this->prune($handles, $seen, $perCollection) : 0;
 
         return ['processed' => $processed, 'pruned' => $pruned];
     }
@@ -75,9 +77,9 @@ class ProfileRebuild
     }
 
     /** Removes rows whose Entry no longer exists. The binding is lost with them, as on a normal delete. */
-    private function prune(array $handles, array $seen, int $total): int
+    private function prune(array $handles, array $seen, array $perCollection): int
     {
-        $this->refuseEmptyPrune($handles, $total);
+        $this->refuseEmptyPrune($handles, $perCollection);
 
         $stale = [];
 
@@ -99,16 +101,21 @@ class ProfileRebuild
     }
 
     /**
-     * No Entry at all for collections that still have rows means the Entries are missing or unreadable,
+     * No Entry at all for a collection that still has rows means the Entries are missing or unreadable,
      * not that every profile was deleted. Pruning then would drop their bindings (team_id, legacy_id).
+     * Checked per collection: one healthy collection says nothing about another.
+     *
+     * @param  array<string, int>  $perCollection  entries seen, by collection handle
      */
-    private function refuseEmptyPrune(array $handles, int $total): void
+    private function refuseEmptyPrune(array $handles, array $perCollection): void
     {
-        if ($total > 0) {
+        $empty = array_values(array_filter($handles, fn (string $handle) => ($perCollection[$handle] ?? 0) === 0));
+
+        if ($empty === []) {
             return;
         }
 
-        $rows = DB::table('directory_profiles')->whereIn('collection', $handles)
+        $rows = DB::table('directory_profiles')->whereIn('collection', $empty)
             ->select('collection', DB::raw('count(*) as rows_count'))
             ->groupBy('collection')
             ->pluck('rows_count', 'collection');
