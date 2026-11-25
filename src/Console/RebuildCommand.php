@@ -7,6 +7,8 @@ use Goldnead\Directory\Services\Collections;
 use Goldnead\Directory\Services\ProfileRebuild;
 use Goldnead\Directory\Support\RebuildStatus;
 use Illuminate\Console\Command;
+use RuntimeException;
+use Throwable;
 
 class RebuildCommand extends Command
 {
@@ -31,14 +33,41 @@ class RebuildCommand extends Command
 
         if ($this->option('queue')) {
             RebuildStatus::put('queued', ['scope' => $entry !== null ? 'entry' : ($collection ?? 'all')]);
-            RebuildProjection::dispatch($collection, $entry, (bool) $this->option('prune'));
+
+            try {
+                RebuildProjection::dispatch($collection, $entry, (bool) $this->option('prune'));
+            } catch (Throwable $e) {
+                // With the sync driver the job has already recorded its own failure.
+                if ((RebuildStatus::get()['state'] ?? null) !== 'failed') {
+                    RebuildStatus::put('failed', ['error' => $e->getMessage()]);
+                }
+
+                report($e);
+                $this->error("Rebuild could not be queued: {$e->getMessage()}");
+
+                return self::FAILURE;
+            }
+
             $this->info('Rebuild queued.');
 
             return self::SUCCESS;
         }
 
-        $result = $rebuild->run($collection, $entry, (bool) $this->option('prune'));
+        try {
+            $result = $rebuild->run($collection, $entry, (bool) $this->option('prune'));
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $this->info("Rebuilt {$result['processed']} profile(s); pruned {$result['pruned']}.");
+
+        if ($result['errors'] > 0) {
+            $this->error("{$result['errors']} entr(y/ies) could not be projected, see the log.");
+
+            return self::FAILURE;
+        }
 
         return self::SUCCESS;
     }

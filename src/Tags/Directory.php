@@ -4,6 +4,7 @@ namespace Goldnead\Directory\Tags;
 
 use Goldnead\Directory\Services\Collections;
 use Goldnead\Directory\Services\ProfileSearch;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Statamic\Facades\Site;
 use Statamic\Tags\Tags;
@@ -21,7 +22,11 @@ class Directory extends Tags
         $names = array_merge(['type', 'q', 'city', 'lat', 'lng', 'radius_km', 'page', 'per_page'], Collections::filterColumns());
         $input = array_filter($this->params->only($names)->all(), fn ($v) => $v !== null && $v !== '');
 
-        if (Validator::make($input, ProfileSearch::rules())->fails()) {
+        $validator = Validator::make($input, ProfileSearch::rules());
+
+        if ($validator->fails()) {
+            Log::warning('directory tag: invalid parameters', ['errors' => $validator->errors()->toArray()]);
+
             return ['profiles' => [], 'page' => 1, 'per_page' => 0, 'total' => 0, 'last_page' => 1, 'no_results' => true];
         }
 

@@ -42,6 +42,7 @@ class RebuildProjection implements ShouldQueue
             'processed' => $result['processed'],
             'total' => $total,
             'pruned' => $result['pruned'],
+            'errors' => $result['errors'],
         ]);
     }
 

@@ -4,11 +4,18 @@ namespace Goldnead\Directory\Tests\Cp;
 
 use Goldnead\Directory\Jobs\RebuildProjection;
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Services\ProfileProjection;
+use Goldnead\Directory\Services\ProfileRebuild;
 use Goldnead\Directory\Support\RebuildStatus;
+use Illuminate\Queue\Connectors\ConnectorInterface;
+use Illuminate\Queue\NullQueue;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Statamic\Facades\Collection;
 use Statamic\Facades\Entry;
+use Throwable;
 
 class RebuildTest extends CpTestCase
 {
@@ -103,5 +110,178 @@ class RebuildTest extends CpTestCase
         $this->assertSame('Eins', DirectoryProfile::query()->find($id)->title);
         $this->assertSame('stale', DirectoryProfile::query()->where('entry_id', 'e2')->value('title'));
         $this->assertSame('entry', RebuildStatus::get()['scope']);
+    }
+
+    /** Deleting the entries drops their rows through the normal delete path; the ghost row has no entry and stays. */
+    private function choirsWithoutEntriesButAGhostRow(): void
+    {
+        Entry::find('e1')->delete();
+        Entry::find('e2')->delete();
+        $this->profile(['entry_id' => 'ghost', 'collection' => 'choirs']);
+        $this->assertSame(1, DirectoryProfile::query()->count());
+    }
+
+    public function test_prune_refuses_when_a_collection_has_no_entries_left(): void
+    {
+        $this->choirsWithoutEntriesButAGhostRow();
+
+        $this->artisan('directory:rebuild', ['--prune' => true])->assertFailed();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
+    }
+
+    public function test_one_broken_entry_does_not_stop_the_rebuild_and_is_counted(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+        DirectoryProfile::query()->delete();
+
+        $this->artisan('directory:rebuild')->assertFailed();
+
+        // e2 was rebuilt although e1 blew up before it.
+        $this->assertSame('Zwei', DirectoryProfile::query()->where('entry_id', 'e2')->value('title'));
+
+        $result = app(ProfileRebuild::class)->run();
+        $this->assertSame(1, $result['errors']);
+    }
+
+    public function test_the_rebuild_job_records_how_many_entries_failed(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+
+        (new RebuildProjection)->handle(app(ProfileRebuild::class));
+
+        $this->assertSame('done', RebuildStatus::get()['state']);
+        $this->assertSame(1, RebuildStatus::get()['errors']);
+    }
+
+    public function test_prune_keeps_the_row_of_an_entry_that_failed_to_sync(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+        DirectoryProfile::query()->where('entry_id', 'e1')->update(['team_id' => 7]);
+
+        app(ProfileRebuild::class)->run(prune: true);
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'e1', 'team_id' => 7]);
+    }
+
+    public function test_prune_refuses_for_an_empty_collection_even_when_another_one_has_entries(): void
+    {
+        config(['directory.collections' => ['choirs' => [], 'leaders' => []]]);
+        Collection::make('leaders')->save();
+        $this->profile(['entry_id' => 'l-ghost', 'collection' => 'leaders']);
+
+        $this->artisan('directory:rebuild', ['--prune' => true])->assertFailed();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'l-ghost']);
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'e1']);
+    }
+
+    public function test_prune_with_an_entry_filter_never_deletes(): void
+    {
+        $this->choirsWithoutEntriesButAGhostRow();
+        Entry::make()->id('e3')->collection('choirs')->data(['title' => 'Drei'])->save();
+
+        $this->artisan('directory:rebuild', ['--entry' => 'e3', '--prune' => true])->assertSuccessful();
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
+    }
+
+    public function test_failed_prune_job_records_the_reason_in_the_status(): void
+    {
+        $this->choirsWithoutEntriesButAGhostRow();
+
+        $job = new RebuildProjection(null, null, true);
+        try {
+            $job->handle(app(ProfileRebuild::class));
+        } catch (Throwable $e) {
+            $job->failed($e);
+        }
+
+        $this->assertSame('failed', RebuildStatus::get()['state']);
+        $this->assertStringContainsString('Refusing to prune', RebuildStatus::get()['error']);
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
+    }
+
+    public function test_running_status_older_than_fifteen_minutes_counts_as_orphaned(): void
+    {
+        $this->beforeApplicationDestroyed(fn () => Carbon::setTestNow());
+
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        RebuildStatus::put('running', ['processed' => 1, 'total' => 9]);
+
+        Carbon::setTestNow('2026-11-25 10:14:59');
+        $this->assertTrue(RebuildStatus::running());
+
+        Carbon::setTestNow('2026-11-25 10:16:00');
+        $this->assertFalse(RebuildStatus::running());
+    }
+
+    public function test_cp_queues_again_when_the_last_rebuild_is_orphaned(): void
+    {
+        $this->beforeApplicationDestroyed(fn () => Carbon::setTestNow());
+        Bus::fake();
+
+        Carbon::setTestNow('2026-11-25 10:00:00');
+        RebuildStatus::put('queued', ['scope' => 'all']);
+
+        Carbon::setTestNow('2026-11-25 10:20:00');
+        $this->actingAs($this->manager());
+        $this->post('/cp/directory/rebuild')->assertRedirect();
+
+        Bus::assertDispatched(RebuildProjection::class);
+    }
+
+    public function test_cp_marks_the_status_failed_when_dispatch_fails(): void
+    {
+        $this->actingAs($this->manager());
+        $this->breakQueue();
+
+        $this->post('/cp/directory/rebuild')->assertRedirect();
+
+        $this->assertSame('failed', RebuildStatus::get()['state']);
+        $this->assertSame('queue down', RebuildStatus::get()['error']);
+    }
+
+    public function test_queue_option_fails_when_dispatch_fails(): void
+    {
+        $this->breakQueue();
+
+        $this->artisan('directory:rebuild', ['--queue' => true])->assertFailed();
+
+        $this->assertSame('failed', RebuildStatus::get()['state']);
+        $this->assertSame('queue down', RebuildStatus::get()['error']);
+    }
+
+    private function breakQueue(): void
+    {
+        Queue::extend('broken', fn () => new class implements ConnectorInterface
+        {
+            public function connect(array $config)
+            {
+                return new class extends NullQueue
+                {
+                    public function push($job, $data = '', $queue = null)
+                    {
+                        throw new \RuntimeException('queue down');
+                    }
+                };
+            }
+        });
+        config(['queue.default' => 'broken', 'queue.connections.broken' => ['driver' => 'broken']]);
     }
 }
