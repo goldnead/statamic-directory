@@ -76,6 +76,23 @@ class ProfileAuthorizationTest extends TestCase
         $this->assertSame('Protected profile fields cannot be changed here.', $response->getData(true)['message']);
     }
 
+    public function test_a_vetoed_save_is_reported_instead_of_answering_with_the_unsaved_profile(): void
+    {
+        $this->bindProfile();
+        $this->mockCanonicalEntry('Edited Choir', saveResult: false);
+        $actor = new GenericUser(['id' => 'owner']);
+        $team = Mockery::mock(Team::class);
+        Teams::shouldReceive('find')->with(4)->andReturn($team);
+        Teams::shouldReceive('can')->with($actor, $team, 'update team')->andReturn(true);
+
+        try {
+            $this->update($actor, ['title' => 'Edited Choir']);
+            $this->fail('A save that an EntrySaving listener vetoed must not answer with success.');
+        } catch (HttpException $exception) {
+            $this->assertSame(422, $exception->getStatusCode());
+        }
+    }
+
     public function test_guest_update_returns_403_for_existing_and_unknown_profile_ids(): void
     {
         $this->bindProfile();
@@ -134,7 +151,7 @@ class ProfileAuthorizationTest extends TestCase
         }
     }
 
-    private function mockCanonicalEntry(?string $expectedTitle = null): void
+    private function mockCanonicalEntry(?string $expectedTitle = null, mixed $saveResult = null): void
     {
         $currentSite = Mockery::mock();
         $currentSite->shouldReceive('handle')->andReturn('en');
@@ -154,7 +171,7 @@ class ProfileAuthorizationTest extends TestCase
         $entry->shouldReceive('get')->with('title')->andReturn($expectedTitle ?? 'Choir');
         if ($expectedTitle) {
             $entry->shouldReceive('set')->with('title', $expectedTitle)->once();
-            $entry->shouldReceive('save')->once();
+            $entry->shouldReceive('save')->once()->andReturn($saveResult);
         } else {
             $entry->shouldNotReceive('set');
             $entry->shouldNotReceive('save');

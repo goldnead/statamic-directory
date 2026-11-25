@@ -9,6 +9,7 @@
 - A rebuild status that is `queued` or `running` and older than 15 minutes is treated as orphaned, so a dead worker no longer blocks new rebuilds.
 - A rebuild that cannot be queued is reported as failed in the CP toast and in the command output, instead of failing silently.
 - Invalid `directory:search` tag parameters are logged as a warning; the tag still renders no results.
+- A profile update whose entry save is vetoed by an `EntrySaving` listener answers `422` instead of returning the unsaved data as a success.
 
 ## 0.2.1 — 2026-11-16
 
