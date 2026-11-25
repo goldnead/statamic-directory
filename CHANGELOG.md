@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- `directory:rebuild --prune` refuses to run when a collection still has profile rows but no entries, instead of deleting their rows and bindings (`team_id`, `legacy_id`).
+- A rebuild status that is `queued` or `running` and older than 15 minutes is treated as orphaned, so a dead worker no longer blocks new rebuilds.
+- A rebuild that cannot be queued is reported as failed in the CP toast and in the command output, instead of failing silently.
+- Invalid `directory:search` tag parameters are logged as a warning; the tag still renders no results.
+
 ## 0.2.1 — 2026-11-16
 
 ### Changed

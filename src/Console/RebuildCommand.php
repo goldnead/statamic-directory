@@ -7,6 +7,8 @@ use Goldnead\Directory\Services\Collections;
 use Goldnead\Directory\Services\ProfileRebuild;
 use Goldnead\Directory\Support\RebuildStatus;
 use Illuminate\Console\Command;
+use RuntimeException;
+use Throwable;
 
 class RebuildCommand extends Command
 {
@@ -31,13 +33,30 @@ class RebuildCommand extends Command
 
         if ($this->option('queue')) {
             RebuildStatus::put('queued', ['scope' => $entry !== null ? 'entry' : ($collection ?? 'all')]);
-            RebuildProjection::dispatch($collection, $entry, (bool) $this->option('prune'));
+
+            try {
+                RebuildProjection::dispatch($collection, $entry, (bool) $this->option('prune'));
+            } catch (Throwable $e) {
+                RebuildStatus::put('failed', ['message' => $e->getMessage()]);
+                report($e);
+                $this->error("Rebuild could not be queued: {$e->getMessage()}");
+
+                return self::FAILURE;
+            }
+
             $this->info('Rebuild queued.');
 
             return self::SUCCESS;
         }
 
-        $result = $rebuild->run($collection, $entry, (bool) $this->option('prune'));
+        try {
+            $result = $rebuild->run($collection, $entry, (bool) $this->option('prune'));
+        } catch (RuntimeException $e) {
+            $this->error($e->getMessage());
+
+            return self::FAILURE;
+        }
+
         $this->info("Rebuilt {$result['processed']} profile(s); pruned {$result['pruned']}.");
 
         return self::SUCCESS;

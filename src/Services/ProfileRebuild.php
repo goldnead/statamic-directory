@@ -40,7 +40,7 @@ class ProfileRebuild
             }
         }
 
-        $pruned = $prune && $entryId === null ? $this->prune($handles, $seen) : 0;
+        $pruned = $prune && $entryId === null ? $this->prune($handles, $seen, $total) : 0;
 
         return ['processed' => $processed, 'pruned' => $pruned];
     }
@@ -75,8 +75,10 @@ class ProfileRebuild
     }
 
     /** Removes rows whose Entry no longer exists. The binding is lost with them, as on a normal delete. */
-    private function prune(array $handles, array $seen): int
+    private function prune(array $handles, array $seen, int $total): int
     {
+        $this->refuseEmptyPrune($handles, $total);
+
         $stale = [];
 
         DB::table('directory_profiles')->whereIn('collection', $handles)
@@ -94,5 +96,31 @@ class ProfileRebuild
         }
 
         return count($stale);
+    }
+
+    /**
+     * No Entry at all for collections that still have rows means the Entries are missing or unreadable,
+     * not that every profile was deleted. Pruning then would drop their bindings (team_id, legacy_id).
+     */
+    private function refuseEmptyPrune(array $handles, int $total): void
+    {
+        if ($total > 0) {
+            return;
+        }
+
+        $rows = DB::table('directory_profiles')->whereIn('collection', $handles)
+            ->select('collection', DB::raw('count(*) as rows_count'))
+            ->groupBy('collection')
+            ->pluck('rows_count', 'collection');
+
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        throw new \RuntimeException(sprintf(
+            'Refusing to prune: no entries found for collection(s) %s but %d profile rows exist.',
+            $rows->keys()->implode(', '),
+            $rows->sum(),
+        ));
     }
 }

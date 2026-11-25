@@ -35,6 +35,7 @@ return [
     'rebuild_profile' => 'Rebuild profile',
     'rebuild_queued' => 'Rebuild queued.',
     'rebuild_already_running' => 'A rebuild is already running.',
+    'rebuild_failed' => 'The rebuild could not be queued.',
     'rebuild_status_queued' => 'Rebuild queued.',
     'rebuild_status_running' => 'Rebuild running: :processed of :total profiles.',
     'rebuild_status_done' => 'Rebuild finished: :processed profiles.',

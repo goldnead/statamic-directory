@@ -35,6 +35,7 @@ return [
     'rebuild_profile' => 'Profil neu aufbauen',
     'rebuild_queued' => 'Neuaufbau eingereiht.',
     'rebuild_already_running' => 'Ein Neuaufbau läuft bereits.',
+    'rebuild_failed' => 'Der Neuaufbau konnte nicht eingereiht werden.',
     'rebuild_status_queued' => 'Neuaufbau eingereiht.',
     'rebuild_status_running' => 'Neuaufbau läuft: :processed von :total Profilen.',
     'rebuild_status_done' => 'Neuaufbau abgeschlossen: :processed Profile.',

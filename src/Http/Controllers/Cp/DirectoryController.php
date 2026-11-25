@@ -23,6 +23,7 @@ use Statamic\Facades\Scope;
 use Statamic\Facades\User;
 use Statamic\Http\Requests\FilteredRequest;
 use Statamic\Query\Scopes\Filters\Concerns\QueriesFilters;
+use Throwable;
 
 /**
  * Control Panel for the projection. `index()` answers both the Inertia page and the JSON the
@@ -130,7 +131,16 @@ class DirectoryController extends Controller
         }
 
         RebuildStatus::put('queued', ['scope' => $entryId !== null ? 'entry' : ($collection ?? 'all')]);
-        RebuildProjection::dispatch($collection, $entryId);
+
+        try {
+            RebuildProjection::dispatch($collection, $entryId);
+        } catch (Throwable $e) {
+            RebuildStatus::put('failed', ['message' => $e->getMessage()]);
+            report($e);
+            Toast::error(__('directory::cp.rebuild_failed'));
+
+            return back();
+        }
 
         Toast::success(__('directory::cp.rebuild_queued'));
 
