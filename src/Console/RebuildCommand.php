@@ -63,6 +63,12 @@ class RebuildCommand extends Command
 
         $this->info("Rebuilt {$result['processed']} profile(s); pruned {$result['pruned']}.");
 
+        if ($result['errors'] > 0) {
+            $this->error("{$result['errors']} entr(y/ies) could not be projected, see the log.");
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
     }
 }

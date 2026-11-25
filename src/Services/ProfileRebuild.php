@@ -4,6 +4,7 @@ namespace Goldnead\Directory\Services;
 
 use Goldnead\Directory\Search\SearchEngine;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Statamic\Facades\Entry;
 
 /**
@@ -16,7 +17,7 @@ class ProfileRebuild
 
     /**
      * @param  callable(int, int): void|null  $progress  receives processed and total
-     * @return array{processed: int, pruned: int}
+     * @return array{processed: int, pruned: int, errors: int}
      */
     public function run(?string $collection = null, ?string $entryId = null, bool $prune = false, ?callable $progress = null): array
     {
@@ -26,13 +27,24 @@ class ProfileRebuild
         $processed = 0;
         $seen = [];
         $perCollection = [];
+        $errors = 0;
 
         foreach ($handles as $handle) {
             app(SearchEngine::class)->configure($handle);
         }
 
         foreach ($entries as $entry) {
-            $this->projection->sync($entry);
+            // One broken entry (a value too long for its column, a bad field) must not
+            // leave every entry after it unprojected. It is reported and counted, and
+            // still counts as seen: pruning must not drop the row it already has.
+            try {
+                $this->projection->sync($entry);
+            } catch (\Throwable $e) {
+                report($e);
+                Log::warning('directory rebuild: entry could not be projected', ['entry' => $entry->id(), 'site' => $entry->locale(), 'error' => $e->getMessage()]);
+                $errors++;
+            }
+
             $seen[$entry->id().'|'.$entry->locale()] = true;
             $perCollection[$entry->collectionHandle()] = ($perCollection[$entry->collectionHandle()] ?? 0) + 1;
             $processed++;
@@ -44,7 +56,7 @@ class ProfileRebuild
 
         $pruned = $prune && $entryId === null ? $this->prune($handles, $seen, $perCollection) : 0;
 
-        return ['processed' => $processed, 'pruned' => $pruned];
+        return ['processed' => $processed, 'pruned' => $pruned, 'errors' => $errors];
     }
 
     public function count(?string $collection = null, ?string $entryId = null): int

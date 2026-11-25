@@ -4,6 +4,7 @@ namespace Goldnead\Directory\Tests\Cp;
 
 use Goldnead\Directory\Jobs\RebuildProjection;
 use Goldnead\Directory\Models\DirectoryProfile;
+use Goldnead\Directory\Services\ProfileProjection;
 use Goldnead\Directory\Services\ProfileRebuild;
 use Goldnead\Directory\Support\RebuildStatus;
 use Illuminate\Queue\Connectors\ConnectorInterface;
@@ -127,6 +128,55 @@ class RebuildTest extends CpTestCase
         $this->artisan('directory:rebuild', ['--prune' => true])->assertFailed();
 
         $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'ghost']);
+    }
+
+    public function test_one_broken_entry_does_not_stop_the_rebuild_and_is_counted(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+        DirectoryProfile::query()->delete();
+
+        $this->artisan('directory:rebuild')->assertFailed();
+
+        // e2 was rebuilt although e1 blew up before it.
+        $this->assertSame('Zwei', DirectoryProfile::query()->where('entry_id', 'e2')->value('title'));
+
+        $result = app(ProfileRebuild::class)->run();
+        $this->assertSame(1, $result['errors']);
+    }
+
+    public function test_the_rebuild_job_records_how_many_entries_failed(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+
+        (new RebuildProjection)->handle(app(ProfileRebuild::class));
+
+        $this->assertSame('done', RebuildStatus::get()['state']);
+        $this->assertSame(1, RebuildStatus::get()['errors']);
+    }
+
+    public function test_prune_keeps_the_row_of_an_entry_that_failed_to_sync(): void
+    {
+        $this->partialMock(ProfileProjection::class, function ($mock): void {
+            $mock->shouldReceive('sync')
+                ->with(\Mockery::on(fn ($entry) => $entry->id() === 'e1'))
+                ->andThrow(new \RuntimeException('column too long'));
+            $mock->shouldReceive('sync')->passthru();
+        });
+        DirectoryProfile::query()->where('entry_id', 'e1')->update(['team_id' => 7]);
+
+        app(ProfileRebuild::class)->run(prune: true);
+
+        $this->assertDatabaseHas('directory_profiles', ['entry_id' => 'e1', 'team_id' => 7]);
     }
 
     public function test_prune_refuses_for_an_empty_collection_even_when_another_one_has_entries(): void
